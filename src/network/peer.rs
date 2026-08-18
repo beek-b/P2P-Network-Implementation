@@ -53,7 +53,7 @@ impl Peer {
             let work_cycle_event = tokio::select! {
                 incident_peermanager = self.rx_channel_peer_from_peermanager.recv() => {
                     match incident_peermanager {
-                        Some(EventsPeerManager::ReadyMessage{peerid, message}) => {
+                        Some(EventsPeerManager::ReadyLowMessage{message}) => {
                             EventsWorkCycle::IncidentPeerManagerReadyMessageTaskWrite(message)
                         },
                         Some(EventsPeerManager::Shutdown) => {

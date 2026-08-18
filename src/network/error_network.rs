@@ -101,3 +101,8 @@ pub enum ErrorTaskWrite {
     ErrorInputOutput(std::io::Error),
     ErrorChannelPeerClosed
 }
+
+#[derive(Debug)]
+pub enum ErrorCreateVersionMessage {
+    ErrorTimestamp(std::time::SystemTimeError)
+}

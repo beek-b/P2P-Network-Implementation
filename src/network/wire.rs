@@ -1,11 +1,16 @@
 use sha2::{Sha256, Digest};
+use std::{time::{SystemTime, UNIX_EPOCH}};
+use std::net::{SocketAddr, IpAddr, Ipv6Addr};
 
-pub const MAGIC_BYTES: u32 = 0xf9beb4d9;
+pub const MAGIC_BYTES: u32 = 0xf9beb4d9; // ---> MagicBytes Mainnet
+// pub const MAGIC_BYTES: u32 = 0xfabfb5da; ---> MagicBytes Regtest
 
 pub const BYTES_VERSION: [u8; 12] = *b"version\0\0\0\0\0";
 pub const BYTES_VERACK: [u8; 12] = *b"verack\0\0\0\0\0\0";
 
-use crate::network::error_network::{ErrorLowLevelParsing};
+pub const USERAGENT: &'static str = "/BitcoinCenter:0.0.1/";
+
+use crate::network::error_network::{ErrorLowLevelParsing, ErrorCreateVersionMessage};
 
 pub struct HeaderMessage {
     pub magic_bytes: u32, // 4 bytes
@@ -109,7 +114,84 @@ impl VersionMessage {
         self.serialize_version_message().len() as u32
     }
 
-    //pub fn build_version_message()
+    pub fn build_version_message(local_address: SocketAddr, remove_address: SocketAddr, nonce: u64) -> Result<Self, ErrorCreateVersionMessage> {
+        let new_timestamp = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| ErrorCreateVersionMessage::ErrorTimestamp(e))?.as_secs();
+
+        let net_addr_to = {
+            let ip_address = {
+                match remove_address.ip() {
+                    IpAddr::V4(v4) => {
+                        let mut bytes_ip = [0u8; 16];
+
+                        bytes_ip[10] = 0x00;
+                        bytes_ip[11] = 0xff;
+
+                        bytes_ip[12..16].copy_from_slice(&v4.octets());
+                        
+                        bytes_ip
+                    },
+                    IpAddr::V6(v6) => {
+                        v6.octets()
+                    }
+                }
+            };
+
+            let port = remove_address.port();
+
+            let net_addr_to = NetAddr {
+                services: 1,
+                ip: ip_address,
+                port: port
+            };
+
+            net_addr_to
+        };
+
+        let net_addr_from = {
+            let ip_address = {
+                match local_address.ip() {
+                    IpAddr::V4(v4) => {
+                        let mut bytes_ip = [0u8; 16];
+
+                        bytes_ip[10] = 0x00;
+                        bytes_ip[11] = 0xff;
+
+                        bytes_ip[12..16].copy_from_slice(&v4.octets());
+                        
+                        bytes_ip
+                    },
+                    IpAddr::V6(v6) => {
+                        v6.octets()
+                    }
+                }
+            };
+
+            let port = local_address.port();
+
+            let net_addr_from = NetAddr {
+                services: 1,
+                ip: ip_address,
+                port: port
+            };
+
+            net_addr_from
+        };
+
+        let user_agents = UserAgent {
+            data: USERAGENT.to_string()
+        };
+
+        Ok(VersionMessage { 
+            version: 70001, 
+            services: 1, 
+            timestamp: new_timestamp, 
+            net_addr_to: net_addr_to, 
+            net_addr_from: net_addr_from, 
+            nonce: nonce, 
+            user_agent: user_agents, 
+            start_height: 0, 
+            relay: true })
+    }
 
     pub fn validation_version_message(&self) -> bool {
         if self.version < 70000 { return false; }
@@ -209,5 +291,9 @@ impl VerackMessage {
 
     pub fn length_verack_message(&self) -> u32 {
         0
+    }
+
+    pub fn build_verack_message() -> Self {
+        Self
     }
 }

@@ -72,6 +72,8 @@ pub enum EventsWorkCyclePeerManager {
 
     IncidentComplitedPeer,
 
+    IncidetViolentComplitedPeer(PeerId),
+
     IncidentNone,
 }
 

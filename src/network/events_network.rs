@@ -18,6 +18,8 @@ pub enum EventsPeerManager {
 
 
     IncidentNewConnection(StructContextConnection),
+    IncidentCompletedPeer(PeerId),
+    IncidentCompletedAllPeer,
 }
 
 pub enum EventsLoopListen {

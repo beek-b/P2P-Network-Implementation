@@ -5,6 +5,9 @@ pub enum EventsWorkCycleHandleMessage {
     IncidentNone,
 
     IncidentNewConnection(StructContextConnection),
+
+    IncidentCompletedAllPeer,
+    IncidentCompletedPeer(PeerId),
 }
 
 pub enum EventsCriticalCompletionHandleMessage {

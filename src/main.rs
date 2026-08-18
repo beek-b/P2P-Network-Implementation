@@ -1,3 +1,5 @@
+use std::{thread::sleep, time::Duration};
+
 use demonstration_of_the_peer_to_peer_network::{
     error_init::ErrorInit,
     events_init::EventsInit,
@@ -13,15 +15,15 @@ use tokio::sync::mpsc;
 fn main() -> Result<(), ErrorInit> {
     env_logger::init();
 
-    log::info!("Bitcoin Center версия v0.0.1 успешно начал процесс инициализаций");
+    log::info!("Bitcoin Center Node 1 версия v0.0.1 успешно начал процесс инициализаций");
 
     let (tx_channel_init_to_network, rx_channel_network) = mpsc::unbounded_channel::<EventsInit>(); // events from init to network
     let (tx_channel_init_to_protocol, rx_channel_protocol) = mpsc::unbounded_channel::<EventsInit>(); // events from init to protocol
 
     let (tx_threadnetwork_and_protocol_to_init, mut rx_init_from_threadnetwork_and_protocol) = mpsc::unbounded_channel::<EventsThreadNetworkProtocol>(); // events from network || protocol --> init
 
-    let (tx_channel_network_to_protocol, rx_channel_protocol_from_network) = mpsc::unbounded_channel(); // events from network --> protocol
-    let (tx_channel_protocol_to_network, rx_channel_network_from_protocol) = mpsc::unbounded_channel(); // events from protocol --> network
+    let (tx_channel_network_to_protocol, rx_channel_protocol_from_network) = mpsc::channel(1024); // events from network --> protocol
+    let (tx_channel_protocol_to_network, rx_channel_network_from_protocol) = mpsc::channel(1024); // events from protocol --> network
 
     let tx_threadnetwork_and_protocol_to_init_clone = tx_threadnetwork_and_protocol_to_init.clone(); // clone events from network --> init
     let state_thread_network = spawn_thread_network(
@@ -39,6 +41,12 @@ fn main() -> Result<(), ErrorInit> {
         // 1. Оборачиваем JoinHandle в Option, чтобы их можно было забрать из цикла один раз
     let mut state_thread_network = Some(state_thread_network);
     let mut state_thread_protocol = Some(state_thread_protocol);
+
+    // sleep(Duration::from_secs(30));
+    // log::info!("Init отправил событие Shutdown");
+
+    // let _ = tx_channel_init_to_network.send(EventsInit::Shutdown);
+    // let _ = tx_channel_init_to_protocol.send(EventsInit::Shutdown);
 
     while let Some(state_thread) = rx_init_from_threadnetwork_and_protocol.blocking_recv() {
         match state_thread {

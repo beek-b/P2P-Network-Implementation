@@ -7,4 +7,6 @@ pub enum EventsThreadProtocol {
 
 pub enum EventsHandleMessage {
     ReadyMessage{peerid: PeerId, message: MessagePayload},
+
+    IncidetViolentComplitedPeer(PeerId),
 }

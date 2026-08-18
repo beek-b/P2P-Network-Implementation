@@ -31,15 +31,15 @@ pub struct PeerManager {
 
     rx_channel_peermanager_from_looplisten: mpsc::Receiver<EventsLoopListen>,
     
-    tx_channel_peermanager_to_protocol: mpsc::UnboundedSender<EventsPeerManager>,
-    rx_channel_peermanager_from_protocol: mpsc::UnboundedReceiver<EventsHandleMessage>,
+    tx_channel_peermanager_to_protocol: mpsc::Sender<EventsPeerManager>,
+    rx_channel_peermanager_from_protocol: mpsc::Receiver<EventsHandleMessage>,
 
     tx_channel_peer_to_peermanager: mpsc::Sender<EventsPeer>,
     rx_channel_peermanager_from_peer: mpsc::Receiver<EventsPeer>,
 }
 
 impl PeerManager {
-    pub fn create(rx_channel_peermanager_from_threadnetwork: mpsc::Receiver<EventsThreadNetwork>, rx_channel_peermanager_from_looplisten: mpsc::Receiver<EventsLoopListen>, tx_channel_peermanager_to_protocol: mpsc::UnboundedSender<EventsPeerManager>, rx_channel_peermanager_from_protocol: mpsc::UnboundedReceiver<EventsHandleMessage>) -> Self {
+    pub fn create(rx_channel_peermanager_from_threadnetwork: mpsc::Receiver<EventsThreadNetwork>, rx_channel_peermanager_from_looplisten: mpsc::Receiver<EventsLoopListen>, tx_channel_peermanager_to_protocol: mpsc::Sender<EventsPeerManager>, rx_channel_peermanager_from_protocol: mpsc::Receiver<EventsHandleMessage>) -> Self {
         let listen_address = {
             SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080)
         };
@@ -58,61 +58,120 @@ impl PeerManager {
         log::info!("Цикл событие peermanager был успешно запущено");
 
         let critical_result_loop = loop {
-            let work_cycle_event = tokio::select! {
-                incident_thread_network = self.rx_channel_peermanager_from_threadnetwork.recv() => {
-                    match incident_thread_network {
-                        Some(EventsThreadNetwork::OutgoingConnection(address)) => {
-                            EventsWorkCyclePeerManager::IncidentThreadNetworkOutgoingConnection(address)
+            let work_cycle_event = if self.set_task_peers.is_empty() {
+                tokio::select! {
+                    incident_thread_network = self.rx_channel_peermanager_from_threadnetwork.recv() => {
+                        match incident_thread_network {
+                            Some(EventsThreadNetwork::OutgoingConnection(address)) => {
+                                EventsWorkCyclePeerManager::IncidentThreadNetworkOutgoingConnection(address)
+                            }
+                            Some(EventsThreadNetwork::Shutdown) => {
+                                break EventsCriticalCompletionPeerManager::IncidentConfirmationShutdown;
+                            }
+                            None => {
+                                break EventsCriticalCompletionPeerManager::IncidentChannelThreadNetworkClosed;
+                            }
                         }
-                        Some(EventsThreadNetwork::Shutdown) => {
-                            break EventsCriticalCompletionPeerManager::IncidentConfirmationShutdown;
-                        },
-                        None => {
-                            break EventsCriticalCompletionPeerManager::IncidentChannelThreadNetworkClosed;
+                    },
+
+                    incident_looplisten = self.rx_channel_peermanager_from_looplisten.recv() => {
+                        match incident_looplisten {
+                            Some(EventsLoopListen::IncomingConnection { socket, address }) => {
+                                EventsWorkCyclePeerManager::IncidentLoopListenIncomingConnection { socket, address }
+                            }
+                            None => {
+                                break EventsCriticalCompletionPeerManager::IncidentChannelLoopListenClosed;
+                            }
                         }
-                    }
-                },
-                incident_looplisten = self.rx_channel_peermanager_from_looplisten.recv() => {
-                    match incident_looplisten {
-                        Some(EventsLoopListen::IncomingConnection{socket, address}) => {
-                            EventsWorkCyclePeerManager::IncidentLoopListenIncomingConnection { socket, address }
-                        },
-                        None => {
-                            break EventsCriticalCompletionPeerManager::IncidentChannelLoopListenClosed;
+                    },
+
+                    incident_protocol = self.rx_channel_peermanager_from_protocol.recv() => {
+                        match incident_protocol {
+                            Some(EventsHandleMessage::ReadyMessage { peerid, message }) => {
+                                EventsWorkCyclePeerManager::IncidentProtocolReadyMessagePeer { peerid, message }
+                            },
+                            Some(EventsHandleMessage::IncidetViolentComplitedPeer(peerid)) => {
+                                EventsWorkCyclePeerManager::IncidetViolentComplitedPeer(peerid)
+                            }
+                            None => {
+                                break EventsCriticalCompletionPeerManager::IncidentChannelProtocolClosed;
+                            }
                         }
-                    }
-                },
-                incident_protocol = self.rx_channel_peermanager_from_protocol.recv() => {
-                    match incident_protocol {
-                        Some(EventsHandleMessage::ReadyMessage{peerid, message}) => {
-                            EventsWorkCyclePeerManager::IncidentProtocolReadyMessagePeer { peerid, message }
-                        },
-                        None => {
-                            break EventsCriticalCompletionPeerManager::IncidentChannelProtocolClosed;
+                    },
+
+                    incident_peer = self.rx_channel_peermanager_from_peer.recv() => {
+                        match incident_peer {
+                            Some(EventsPeer::ReadyLowMessage { peerid, message }) => {
+                                EventsWorkCyclePeerManager::IncidentPeerLowLevelMessage { peerid, message }
+                            }
+                            Some(_) => {
+                                EventsWorkCyclePeerManager::IncidentNone
+                            }
+                            None => {
+                                EventsWorkCyclePeerManager::IncidentComplitedPeer
+                            }
                         }
-                    }
-                },
-                incident_peer = self.rx_channel_peermanager_from_peer.recv() => {
-                    match incident_peer {
-                        Some(EventsPeer::ReadyLowMessage{peerid, message}) => {
-                            EventsWorkCyclePeerManager::IncidentPeerLowLevelMessage{peerid, message}
-                        },
-                        Some(_) => {
-                            EventsWorkCyclePeerManager::IncidentNone
-                        },
-                        None => {
-                            EventsWorkCyclePeerManager::IncidentComplitedPeer
+                    },
+                }
+            } else {
+                tokio::select! {
+                    incident_thread_network = self.rx_channel_peermanager_from_threadnetwork.recv() => {
+                        match incident_thread_network {
+                            Some(EventsThreadNetwork::OutgoingConnection(address)) => {
+                                EventsWorkCyclePeerManager::IncidentThreadNetworkOutgoingConnection(address)
+                            }
+                            Some(EventsThreadNetwork::Shutdown) => {
+                                break EventsCriticalCompletionPeerManager::IncidentConfirmationShutdown;
+                            }
+                            None => {
+                                break EventsCriticalCompletionPeerManager::IncidentChannelThreadNetworkClosed;
+                            }
                         }
-                    }
-                },
-                result_state_peers = self.set_task_peers.join_next() => {
-                    match result_state_peers {
-                        Some(result_peer) => {
-                            EventsWorkCyclePeerManager::IncidentComplitedPeerResult((result_peer))
-                        },
-                        None => {
-                            break EventsCriticalCompletionPeerManager::IncidentZeroPeers;
+                    },
+
+                    incident_looplisten = self.rx_channel_peermanager_from_looplisten.recv() => {
+                        match incident_looplisten {
+                            Some(EventsLoopListen::IncomingConnection { socket, address }) => {
+                                EventsWorkCyclePeerManager::IncidentLoopListenIncomingConnection { socket, address }
+                            }
+                            None => {
+                                break EventsCriticalCompletionPeerManager::IncidentChannelLoopListenClosed;
+                            }
                         }
+                    },
+
+                    incident_protocol = self.rx_channel_peermanager_from_protocol.recv() => {
+                        match incident_protocol {
+                            Some(EventsHandleMessage::ReadyMessage { peerid, message }) => {
+                                EventsWorkCyclePeerManager::IncidentProtocolReadyMessagePeer { peerid, message }
+                            },
+                            Some(EventsHandleMessage::IncidetViolentComplitedPeer(peerid)) => {
+                                EventsWorkCyclePeerManager::IncidetViolentComplitedPeer(peerid)
+                            }
+                            None => {
+                                break EventsCriticalCompletionPeerManager::IncidentChannelProtocolClosed;
+                            }
+                        }
+                    },
+
+                    incident_peer = self.rx_channel_peermanager_from_peer.recv() => {
+                        match incident_peer {
+                            Some(EventsPeer::ReadyLowMessage { peerid, message }) => {
+                                EventsWorkCyclePeerManager::IncidentPeerLowLevelMessage { peerid, message }
+                            }
+                            Some(_) => {
+                                EventsWorkCyclePeerManager::IncidentNone
+                            }
+                            None => {
+                                EventsWorkCyclePeerManager::IncidentComplitedPeer
+                            }
+                        }
+                    },
+
+                    result_peer = self.set_task_peers.join_next() => {
+                        EventsWorkCyclePeerManager::IncidentComplitedPeerResult(
+                            result_peer.expect("JoinSet пуст, хотя перед select! был проверен")
+                        )
                     }
                 }
             };
@@ -156,8 +215,10 @@ impl PeerManager {
                                     self.set_id_peers.insert(task_joinset_peer.id(), new_peerid);
 
                                     let context_outgoing_peer = StructContextConnection::new(new_peerid, TypeConnection::OutgoingConnection, self.nonce, local_address, address);
-                                    if self.tx_channel_peermanager_to_protocol.send(EventsPeerManager::IncidentNewConnection(context_outgoing_peer)).is_err() {
+                                    if self.tx_channel_peermanager_to_protocol.send(EventsPeerManager::IncidentNewConnection(context_outgoing_peer)).await.is_err() {
                                         break EventsCriticalCompletionPeerManager::IncidentChannelProtocolClosed;
+                                    } else {
+                                        log::info!("PeerManager успешно отправляет факт нового исходящего соединение HandleMessage");
                                     }
                                 },
                                 Err(error_peer) => {
@@ -207,8 +268,10 @@ impl PeerManager {
                             self.set_id_peers.insert(task_joinset_peer.id(), new_peerid);
 
                             let context_incoming_peer = StructContextConnection::new(new_peerid, TypeConnection::IncomingConnection, self.nonce, local_address, address);
-                            if self.tx_channel_peermanager_to_protocol.send(EventsPeerManager::IncidentNewConnection(context_incoming_peer)).is_err() {
+                            if self.tx_channel_peermanager_to_protocol.send(EventsPeerManager::IncidentNewConnection(context_incoming_peer)).await.is_err() {
                                 break EventsCriticalCompletionPeerManager::IncidentChannelProtocolClosed;
+                            } else {
+                                log::info!("PeerManager успешно отправляет факт нового входящего соединение HandleMessage");
                             }
                         },
                         Err(error_peer) => {
@@ -231,13 +294,17 @@ impl PeerManager {
                     continue;
                 },
                 EventsWorkCyclePeerManager::IncidentPeerLowLevelMessage{peerid, message} => {
-                    if self.tx_channel_peermanager_to_protocol.send(EventsPeerManager::ReadyMessage{peerid, message}).is_err() {
+                    if self.tx_channel_peermanager_to_protocol.send(EventsPeerManager::ReadyMessage{peerid, message}).await.is_err() {
                         break EventsCriticalCompletionPeerManager::IncidentChannelProtocolClosed;
                     }
                     continue;
                 },
                 EventsWorkCyclePeerManager::IncidentComplitedPeer => {
                     log::warn!("[Error: IncidentPeer]: Задача Peer завершена (канал соединение сбросано)");
+
+                    if self.tx_channel_peermanager_to_protocol.send(EventsPeerManager::IncidentCompletedAllPeer).await.is_err() {
+                        break EventsCriticalCompletionPeerManager::IncidentChannelProtocolClosed;
+                    }
                     continue;
                 }
                 EventsWorkCyclePeerManager::IncidentComplitedPeerResult(result_peer) => {
@@ -250,11 +317,21 @@ impl PeerManager {
                                             log::info!("[Success: IncidentPeer]: Задача Peer по ID: {} успешно завершена с кодом состояния: Successful: {:?}", peerid, success_peer);
 
                                             let _ = &self.set_all_peers.remove(&peerid);
+                                            self.peerid -= 1;
+
+                                            if self.tx_channel_peermanager_to_protocol.send(EventsPeerManager::IncidentCompletedPeer(peerid)).await.is_err() {
+                                                break EventsCriticalCompletionPeerManager::IncidentChannelProtocolClosed;
+                                            }
                                         },
                                         SuccessPeer::SuccessfulTaskReadBrokenPipeTaskWriteSuccessful => {
                                             log::warn!("[Success: IncidentPeer]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peerid, success_peer);
 
                                             let _ = &self.set_all_peers.remove(&peerid);
+                                            self.peerid -= 1;
+
+                                            if self.tx_channel_peermanager_to_protocol.send(EventsPeerManager::IncidentCompletedPeer(peerid)).await.is_err() {
+                                                break EventsCriticalCompletionPeerManager::IncidentChannelProtocolClosed;
+                                            }
                                         }
                                     }
                                 },
@@ -262,19 +339,38 @@ impl PeerManager {
                                     log::error!("[Error: IncidentPeer]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peerid, result_peer_error);
 
                                     let _ = &self.set_all_peers.remove(&peerid);
+                                    self.peerid -= 1;
+
+                                    if self.tx_channel_peermanager_to_protocol.send(EventsPeerManager::IncidentCompletedPeer(peerid)).await.is_err() {
+                                        break EventsCriticalCompletionPeerManager::IncidentChannelProtocolClosed;
+                                    }
                                 }
                             }
                         },
                         Err(error_peer) => {
-                            if let Some(peerid) = self.set_id_peers.get(&error_peer.id()) {
+                            if let Some(peerid) = self.set_id_peers.get(&error_peer.id()).copied() {
                                 log::error!("[Error: IncidentPeer]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peerid, error_peer);
 
                                 let _ = &self.set_all_peers.remove(&peerid);
+                                self.peerid -= 1;
+
+                                if self.tx_channel_peermanager_to_protocol.send(EventsPeerManager::IncidentCompletedPeer(peerid)).await.is_err() {
+                                    break EventsCriticalCompletionPeerManager::IncidentChannelProtocolClosed;
+                                }
                             }
                         }
                     }
                     continue;
                 },
+                EventsWorkCyclePeerManager::IncidetViolentComplitedPeer(peerid) => {
+                    log::info!("PeerManager получил событие о завершение пира с id: {} по причине некорректное поведение", peerid);
+
+                    if let Some(complited_peer) = self.set_all_peers.get_mut(&peerid) {
+                        if complited_peer.tx_channel_peermanager_to_peer.send(EventsPeerManager::Shutdown).await.is_err() {
+                            log::info!("PeerManager не удалось отправить событие завершение пиру ведущий некорректное поведение: PeerChannelClosed");
+                        }
+                    }
+                }
                 EventsWorkCyclePeerManager::IncidentNone => {
                     continue;
                 }
@@ -293,11 +389,13 @@ impl PeerManager {
                                     log::info!("[Success: Shutdown]: Задача Peer по ID: {} успешно завершена с кодом состояния: Successful: {:?}", peerid, success_result_peer);
 
                                     let _ = &self.set_all_peers.remove(&peerid);
+                                    self.peerid -= 1;
                                 },
                                 SuccessPeer::SuccessfulTaskReadBrokenPipeTaskWriteSuccessful => {
                                     log::warn!("[Success: Shutdown]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peerid, success_result_peer);
 
                                     let _ = &self.set_all_peers.remove(&peerid);
+                                    self.peerid -= 1;
                                 }
                             }
                         },
@@ -305,11 +403,13 @@ impl PeerManager {
                             log::error!("[Error: Shutdown]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peerid, error_result_peer);
 
                             let _= &self.set_all_peers.remove(&peerid);
+                            self.peerid -= 1;
                         },
                         Err(error_joinerror) => {
                             if let Some(peer_id) = self.set_id_peers.get(&error_joinerror.id()) {
                                 log::error!("[Error: Shutdown]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peer_id, error_joinerror);
                                 let _ = &self.set_all_peers.remove(&peer_id);
+                                self.peerid -= 1;
                             }
                         }
                     }
@@ -328,11 +428,13 @@ impl PeerManager {
                                     log::info!("[Success: ChannelThreadNetworkClosed]: Задача Peer по ID: {} успешно завершена с кодом состояния: Successful: {:?}", peerid, success_result_peer);
 
                                     let _ = &self.set_all_peers.remove(&peerid);
+                                    self.peerid -= 1;
                                 },
                                 SuccessPeer::SuccessfulTaskReadBrokenPipeTaskWriteSuccessful => {
                                     log::warn!("[Success: ChannelThreadNetworkClosed]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peerid, success_result_peer);
 
                                     let _ = &self.set_all_peers.remove(&peerid);
+                                    self.peerid -= 1;
                                 }
                             }
                         },
@@ -340,11 +442,13 @@ impl PeerManager {
                             log::error!("[Error: ChannelThreadNetworkClosed]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peerid, error_result_peer);
 
                             let _ = &self.set_all_peers.remove(&peerid);
+                            self.peerid -= 1;
                         },
                         Err(error_joinerror) => {
                             if let Some(peer_id) = self.set_id_peers.get(&error_joinerror.id()) {
                                 log::error!("[Error: ChannelThreadNetworkClosed]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peer_id, error_joinerror);
                                 let _ = &self.set_all_peers.remove(&peer_id);
+                                self.peerid -= 1;
                             }
                         }
                     }
@@ -363,11 +467,13 @@ impl PeerManager {
                                     log::info!("[Success: ChannelLoopListenClosed]: Задача Peer по ID: {} успешно завершена с кодом состояния: Successful: {:?}", peerid, success_result_peer);
 
                                     let _ = &self.set_all_peers.remove(&peerid);
+                                    self.peerid -= 1;
                                 },
                                 SuccessPeer::SuccessfulTaskReadBrokenPipeTaskWriteSuccessful => {
                                     log::warn!("[Success: ChannelLoopListenClosed]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peerid, success_result_peer);
 
                                     let _ = &self.set_all_peers.remove(&peerid);
+                                    self.peerid -= 1;
                                 }
                             }
                         },
@@ -375,11 +481,13 @@ impl PeerManager {
                             log::error!("[Error: ChannelLoopListenClosed]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peerid, error_result_peer);
 
                             let _ = &self.set_all_peers.remove(&peerid);
+                            self.peerid -= 1;
                         },
                         Err(error_joinerror) => {
                             if let Some(peer_id) = self.set_id_peers.get(&error_joinerror.id()) {
                                 log::error!("[Error: ChannelLoopListenClosed]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peer_id, error_joinerror);
                                 let _ = &self.set_all_peers.remove(&peer_id);
+                                self.peerid -= 1;
                             }
                         }
                     }
@@ -398,11 +506,13 @@ impl PeerManager {
                                     log::info!("[Success: ChannelProtocolClosed]: Задача Peer по ID: {} успешно завершена с кодом состояния: Successful: {:?}", peerid, success_result_peer);
 
                                     let _ = &self.set_all_peers.remove(&peerid);
+                                    self.peerid -= 1;
                                 },
                                 SuccessPeer::SuccessfulTaskReadBrokenPipeTaskWriteSuccessful => {
                                     log::warn!("[Success: ChannelProtocolClosed]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peerid, success_result_peer);
 
                                     let _ = &self.set_all_peers.remove(&peerid);
+                                    self.peerid -= 1;
                                 }
                             }
                         },
@@ -410,11 +520,13 @@ impl PeerManager {
                             log::error!("[Error: ChannelProtocolClosed]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peerid, error_result_peer);
 
                             let _ = &self.set_all_peers.remove(&peerid);
+                            self.peerid -= 1;
                         },
                         Err(error_joinerror) => {
                             if let Some(peer_id) = self.set_id_peers.get(&error_joinerror.id()) {
                                 log::error!("[Error: ChannelProtocolClosed]: Задача Peer по ID: {} завершена с кодом состояния: Error: {:?}", peer_id, error_joinerror);
                                 let _ = &self.set_all_peers.remove(&peer_id);
+                                self.peerid -= 1;
                             }
                         }
                     }

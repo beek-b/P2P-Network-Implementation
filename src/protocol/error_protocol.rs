@@ -1,3 +1,5 @@
+use crate::{network::error_network::ErrorCreateVersionMessage};
+
 #[derive(Debug)]
 pub enum ErrorThreadProtocol {
     ErrorInputOutput(std::io::Error),
@@ -12,4 +14,16 @@ pub enum ErrorHandleMessage {
     ErrorChannelThreadProtocolClosed,
 
     ErrorChannelPeerManagerClosed,
+}
+
+#[derive(Debug)]
+pub enum ErrorHandle {
+    PeerManagerClosed,
+    ErrorCreateVersionMessage(ErrorCreateVersionMessage),
+
+    ErrorInvalidVersionMessage,
+    ErrorInvalidStateVersion,
+    ErrorInvalidStateVerack,
+
+    ErrorInvalidStateHandshake,
 }

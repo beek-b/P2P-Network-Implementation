@@ -4,8 +4,9 @@ use tokio::{runtime::Builder, sync::mpsc};
 use crate::{events_init::EventsInit, network::events_network::{EventsPeerManager, EventsThreadNetworkProtocol}, protocol::{error_protocol::ErrorThreadProtocol, events_protocol::{EventsHandleMessage, EventsThreadProtocol}, ttype_protocol::EventsCriticalCompletionThreadProtocol}};
 use crate::protocol::handlemessage::{HandleMessage};
 
-pub fn spawn_thread_protocol(mut rx_channel_protocol: mpsc::UnboundedReceiver<EventsInit>, tx_threadnetwork_and_protocol_to_init: mpsc::UnboundedSender<EventsThreadNetworkProtocol>, rx_channel_protocol_from_network: mpsc::UnboundedReceiver<EventsPeerManager>, tx_channel_protocol_to_network: mpsc::UnboundedSender<EventsHandleMessage>) -> JoinHandle<Result<(), ErrorThreadProtocol>> {
+pub fn spawn_thread_protocol(mut rx_channel_protocol: mpsc::UnboundedReceiver<EventsInit>, tx_threadnetwork_and_protocol_to_init: mpsc::UnboundedSender<EventsThreadNetworkProtocol>, rx_channel_protocol_from_network: mpsc::Receiver<EventsPeerManager>, tx_channel_protocol_to_network: mpsc::Sender<EventsHandleMessage>) -> JoinHandle<Result<(), ErrorThreadProtocol>> {
     let state_thread_protocol = thread::spawn(move || {
+        log::info!("Системный поток bcprotocol-thread поднять успешно");
         let runtime_protocol = Builder::new_current_thread()
             .enable_all()
             .build()

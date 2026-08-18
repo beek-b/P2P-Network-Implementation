@@ -1,11 +1,13 @@
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::thread::{self, JoinHandle};
+use tokio::time::{sleep, Duration};
 use tokio::{sync::mpsc, runtime::Builder};
 
 use crate::{events_init::EventsInit};
 use crate::network::{error_network::ErrorThreadNetwork, events_network::{EventsLoopListen, EventsPeerManager, EventsThreadNetwork, EventsThreadNetworkProtocol}, looplisten::run, peermanager::PeerManager, ttype::EventsCriticalCompletionThreadNetwork};
 use crate::protocol::events_protocol::{EventsHandleMessage};
 
-pub fn spawn_thread_network(mut rx_channel_network: mpsc::UnboundedReceiver<EventsInit>, tx_channel_network_to_protocol: mpsc::UnboundedSender<EventsPeerManager>, rx_channel_network_from_protocol: mpsc::UnboundedReceiver<EventsHandleMessage>, mut tx_threadnetwork_and_protocol_to_init_clone: mpsc::UnboundedSender<EventsThreadNetworkProtocol>) -> JoinHandle<Result<(), ErrorThreadNetwork>> {
+pub fn spawn_thread_network(mut rx_channel_network: mpsc::UnboundedReceiver<EventsInit>, tx_channel_network_to_protocol: mpsc::Sender<EventsPeerManager>, rx_channel_network_from_protocol: mpsc::Receiver<EventsHandleMessage>, tx_threadnetwork_and_protocol_to_init_clone: mpsc::UnboundedSender<EventsThreadNetworkProtocol>) -> JoinHandle<Result<(), ErrorThreadNetwork>> {
     let state_thread_network = thread::spawn(move || {
         log::info!("Системный поток bcnetwork-thread поднять успешно");
         let runtime_network = Builder::new_current_thread()
@@ -27,6 +29,9 @@ pub fn spawn_thread_network(mut rx_channel_network: mpsc::UnboundedReceiver<Even
             let mut state_task_looplisten = tokio::spawn(async move {
                 run(rx_channel_looplisten, tx_channel_looplisten).await
             });
+
+            // sleep(Duration::from_secs(30)).await;
+            // let _ = tx_channel_network_to_peermanager.send(EventsThreadNetwork::OutgoingConnection(std::net::SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(172, 20, 10, 2), 8333)))).await;
 
             let critical_result_networkloop = loop {
                 tokio::select! {

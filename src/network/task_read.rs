@@ -13,6 +13,8 @@ pub const LEN_HEADER_MESSAGE: usize = 24;
 pub const MAX_SIZE_PAYLOAD: usize = 4 << 20;
 
 pub async fn start_task_read(mut part_socket_read: OwnedReadHalf, mut rx_channel_from_peer: mpsc::Receiver<EventsPeer>, tx_channel_to_peer: mpsc::Sender<EventsTaskRead>) -> Result<SuccessTaskRead, ErrorTaskRead> {
+    log::info!("Подзадача taskread был успешно запущено");
+
     let mut storage_buffer = Vec::<u8>::new();
 
     let mut temporary_buffer: [u8; 4096] = [0u8; 4096];
@@ -28,9 +30,13 @@ pub async fn start_task_read(mut part_socket_read: OwnedReadHalf, mut rx_channel
 
                     loop {
                         match raw_byte_processing(&storage_buffer) {
-                            Ok(Some(message)) => {
+                            Ok(Some((message, lenth))) => {
+                                storage_buffer.drain(..LEN_HEADER_MESSAGE + lenth);
+
                                 if tx_channel_to_peer.send(EventsTaskRead::LowRawMessage(message)).await.is_err() {
                                     return Err(ErrorTaskRead::ErrorChannelPeerClosed);
+                                } else {
+                                    break;
                                 }
                             },
                             Ok(None) => {
@@ -58,7 +64,7 @@ pub async fn start_task_read(mut part_socket_read: OwnedReadHalf, mut rx_channel
     }
 }
 
-fn raw_byte_processing(storage_buffer: &Vec<u8>) -> Result<Option<MessagePayload>, ErrorParsing> {
+fn raw_byte_processing(storage_buffer: &Vec<u8>) -> Result<Option<(MessagePayload, usize)>, ErrorParsing> {
     if storage_buffer.len() < 0 { return Ok(None); }
     let mut offsit = 0;
 
@@ -87,7 +93,12 @@ fn raw_byte_processing(storage_buffer: &Vec<u8>) -> Result<Option<MessagePayload
 
             if checksum != checksum_calculate(&version_message.serialize_version_message()) { return Err(ErrorParsing::InvalidCheckSum); }
 
-            Ok(Some(MessagePayload::Version(version_message)))
+            Ok((Some(
+                (
+                    MessagePayload::Version(version_message),
+                    length_message
+                )
+            )))
         },
         TypeCommandMessage::VerackMessage => {
             let bytes_length: [u8; 4] = storage_buffer[offsit..offsit + 4].try_into().map_err(|e| ErrorParsing::ConversionError(e))?;
@@ -104,7 +115,10 @@ fn raw_byte_processing(storage_buffer: &Vec<u8>) -> Result<Option<MessagePayload
 
             if checksum != checksum_calculate(&[verack_message.serialize_verack_message()]) { return Err(ErrorParsing::InvalidCheckSum); }
 
-            Ok(Some(MessagePayload::Verack(verack_message)))
+            Ok((Some((
+                MessagePayload::Verack(verack_message),
+                length_message
+            ))))
         },
         TypeCommandMessage::UncertainMessage => {
             Err(ErrorParsing::InvalidCommand)
